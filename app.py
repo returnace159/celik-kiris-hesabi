@@ -1,71 +1,89 @@
 import streamlit as st
 
-st.set_page_config(page_title="Çelik Hesap Pro v3", page_icon="🏗️")
-st.title("🏗️ Profesyonel Kiriş Analiz Asistanı")
-st.caption("Hesaplama: Merkezi Tekil Yük + Kiriş Zati Ağırlığı (St 37)")
+st.set_page_config(page_title="Çelik Analiz Pro v5", page_icon="🏗️", layout="wide")
+st.title("🏗️ Profesyonel Kiriş Analiz Asistanı (L/500 Hassasiyet)")
+st.caption("Analiz: Merkezi Yük + Zati Ağırlık + Gerilme + Hassas Sehim Kontrolü")
 
-# --- VERİTABANI (Tablandan okunan Wx ve G ağırlık değerleri) ---
-# Format: "Profil Adı": [Wx (cm3), G (kg/m)]
+# --- VERİTABANI (Senin Tablandan: Wx: cm3, G: kg/m, Ix: cm4) ---
 hea_data = {
-    "HEA 100": [72.8, 16.7],   "HEA 120": [106.3, 19.9],  "HEA 140": [155.4, 24.7],
-    "HEA 160": [220.1, 30.4],  "HEA 180": [293.6, 35.5],  "HEA 200": [388.6, 42.3],
-    "HEA 220": [515.2, 50.5],  "HEA 240": [675.1, 60.3],  "HEA 260": [836.4, 68.2],
-    "HEA 280": [1013, 76.4],   "HEA 300": [1260, 88.3],   "HEA 320": [1479, 97.6],
-    "HEA 340": [1678, 105.0],  "HEA 360": [1888, 112.0],  "HEA 400": [2311, 125.0],
-    "HEA 450": [2896, 140.0],  "HEA 500": [3550, 155.0],  "HEA 550": [4146, 166.0],
-    "HEA 600": [4702, 178.0],  "HEA 700": [5764, 204.0],  "HEA 800": [6891, 224.0],
-    "HEA 900": [8013, 252.0],  "HEA 1000": [9485, 272.0]
+    "HEA 100": [72.8, 16.7, 349.2],    "HEA 120": [106.3, 19.9, 606.2],
+    "HEA 140": [155.4, 24.7, 1033],    "HEA 160": [220.1, 30.4, 1673],
+    "HEA 180": [293.6, 35.5, 2510],    "HEA 200": [388.6, 42.3, 3692],
+    "HEA 220": [515.2, 50.5, 5410],    "HEA 240": [675.1, 60.3, 7763],
+    "HEA 260": [836.4, 68.2, 10450],   "HEA 280": [1013, 76.4, 13670],
+    "HEA 300": [1260, 88.3, 18260],    "HEA 320": [1479, 97.6, 22930],
+    "HEA 340": [1678, 105.0, 27690],   "HEA 360": [1888, 112.0, 33090],
+    "HEA 400": [2311, 125.0, 45070],   "HEA 450": [2896, 140.0, 63720],
+    "HEA 500": [3550, 155.0, 86970],   "HEA 550": [4146, 166.0, 111900],
+    "HEA 600": [4702, 178.0, 141200],  "HEA 700": [5764, 204.0, 215300],
+    "HEA 800": [6891, 224.0, 303400],  "HEA 900": [8013, 252.0, 422100],
+    "HEA 1000": [9485, 272.0, 553800]
 }
 
 # --- YAN PANEL ---
 with st.sidebar:
-    st.header("⚙️ Parametreler")
-    secilen = st.selectbox("Profil Seçin:", list(hea_data.keys()), index=10)
-    L = st.number_input("Kiriş Boyu (Metre):", min_value=0.1, value=6.0, step=0.5)
+    st.header("⚙️ Girdiler")
+    secilen = st.selectbox("Profil:", list(hea_data.keys()), index=10) # HEA 300
+    L = st.number_input("Açıklık (Metre):", min_value=0.1, value=6.0, step=0.5)
     P_kg = st.number_input("Merkezi Yük (kg):", min_value=0, value=3000, step=100)
+    # L/500 varsayılan yapıldı
+    sehim_secimi = st.selectbox("Sehim Sınırı:", ["L/200", "L/300", "L/500"], index=2) 
     st.write("---")
-    st.write(f"**Profil Verisi ({secilen}):**")
-    st.write(f"Wx: {hea_data[secilen][0]} cm³")
-    st.write(f"Birim Ağırlık: {hea_data[secilen][1]} kg/m")
+    st.info("Çelik: S235 (St 37)\n\nE = 210.000 MPa")
 
 # --- HESAPLAMA FONKSİYONU ---
-def detayli_analiz(profil_adi, L_m, P_kg):
-    Wx_mm3 = hea_data[profil_adi][0] * 1000
-    G_kg_m = hea_data[profil_adi][1]
-    g = 9.81
+def analiz(p_adi, L_m, p_kg):
+    wx_mm3 = hea_data[p_adi][0] * 1000
+    g_kg_m = hea_data[p_adi][1]
+    ix_mm4 = hea_data[p_adi][2] * 10000 
     
     L_mm = L_m * 1000
-    P_N = P_kg * g
-    q_N_mm = (G_kg_m * g) / 1000  # kg/m'den N/mm'ye dönüşüm
+    P_N = p_kg * 9.81
+    q_N_mm = (g_kg_m * 9.81) / 1000
+    E = 210000
     
-    # Momentler (Nmm)
-    M_tekil = (P_N * L_mm) / 4
-    M_zati = (q_N_mm * (L_mm**2)) / 8
-    M_toplam = M_tekil + M_zati
+    # Gerilme
+    M_t = (P_N * L_mm) / 4
+    M_z = (q_N_mm * (L_mm**2)) / 8
+    gerilme = (M_t + M_z) / wx_mm3
     
-    gerilme = M_toplam / Wx_mm3
-    return gerilme, M_tekil, M_zati
-
-res_gerilme, m_t, m_z = detayli_analiz(secilen, L, P_kg)
-
-# --- SONUÇLAR ---
-st.subheader(f"📊 {secilen} Analiz Özeti")
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Toplam Gerilme", f"{res_gerilme:.2f} MPa")
-col2.metric("Zati Moment Payı", f"{(m_z/(m_t+m_z))*100:.1f}%")
-col3.metric("Limit", "235 MPa")
-
-if res_gerilme < 235:
-    st.success(f"✅ UYGUN. Kapasite Kullanımı: %{(res_gerilme/235)*100:.1f}")
-else:
-    st.error(f"❌ UYGUN DEĞİL! Akma sınırı aşıldı.")
+    # Sehim
+    s_p = (P_N * (L_mm**3)) / (48 * E * ix_mm4)
+    s_g = (5 * q_N_mm * (L_mm**4)) / (384 * E * ix_mm4)
+    total_s = s_p + s_g
     
-    # AKILLI ÖNERİ SİSTEMİ
-    st.divider()
-    st.write("🔍 **Otomatik Profil Önerisi:**")
+    return gerilme, total_s
+
+g, s = analiz(secilen, L, P_kg)
+denomin = int(sehim_secimi.split("/")[1])
+limit_mm = (L * 1000) / denomin
+
+# --- GÖRSEL SONUÇLAR ---
+col1, col2 = st.columns(2)
+
+with col1:
+    st.metric("Hesaplanan Gerilme", f"{g:.2f} MPa")
+    if g < 235:
+        st.success("✅ Gerilme Uygun")
+    else:
+        st.error("❌ Gerilme Aşıldı!")
+
+with col2:
+    st.metric("Hesaplanan Sehim", f"{s:.1f} mm")
+    if s < limit_mm:
+        st.success(f"✅ Sehim Uygun (<{limit_mm:.1f}mm)")
+    else:
+        st.error(f"❌ Sehim Fazla! (>{limit_mm:.1f}mm)")
+
+# --- AKILLI ÖNERİ ---
+st.divider()
+if g >= 235 or s >= limit_mm:
+    st.warning(f"⚠️ **{secilen}** kriterleri sağlamıyor. Uygun profil aranıyor...")
     for ad in hea_data.keys():
-        g_kontrol, _, _ = detayli_analiz(ad, L, P_kg)
-        if g_kontrol < 235:
-            st.info(f"💡 Bu yükleme için minimum **{ad}** profili kullanılmalıdır.")
+        g_k, s_k = analiz(ad, L, P_kg)
+        if g_k < 235 and s_k < limit_mm:
+            st.info(f"💡 **ÖNERİ:** En az **{ad}** kullanmalısınız (Hem gerilme hem {sehim_secimi} sehim uygun).")
             break
+else:
+    st.balloons()
+    st.success(f"Mükemmel! **{secilen}** hem taşıma hem de sehim ({sehim_secimi}) açısından güvenli.")
