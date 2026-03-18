@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Korkmaz Mühendislik v12", layout="wide")
+st.set_page_config(page_title="Korkmaz Mühendislik v13", layout="wide")
 
 # --- GÜVENLİK ---
 if "authed" not in st.session_state:
@@ -19,6 +19,7 @@ if not st.session_state["authed"]:
     st.stop()
 
 # --- VERİTABANI (Ağırlık kg/m, Ix cm4) ---
+# HEA Serisi (Hafif Geniş Başlıklı)
 hea_db = {
     "HEA 100": [16.7, 349.2], "HEA 120": [19.9, 606.2], "HEA 140": [24.7, 1033.0],
     "HEA 160": [30.4, 1673.0], "HEA 180": [35.5, 2510.0], "HEA 200": [42.3, 3692.0],
@@ -27,6 +28,7 @@ hea_db = {
     "HEA 500": [155.0, 86970.0], "HEA 600": [178.0, 141200.0]
 }
 
+# IPE Serisi (Dar Başlıklı)
 ipe_db = {
     "IPE 100": [8.1, 171.0], "IPE 120": [10.4, 317.8], "IPE 140": [12.9, 541.2],
     "IPE 160": [15.8, 869.3], "IPE 180": [18.8, 1317.0], "IPE 200": [22.4, 1943.0],
@@ -37,23 +39,24 @@ ipe_db = {
 }
 
 st.title("🏗️ Korkmaz Akıllı Analiz Paneli")
-st.info("Bu sürümde zaman sınırlaması yoktur. Zati ağırlık hesaba dahildir.")
+st.info("Limitler: 1/500, 1/900, 1/1000 olarak güncellendi. Zati ağırlık hesaba dahildir.")
 
 # --- GİRDİLER ---
 with st.container():
     c1, c2, c3 = st.columns(3)
     with c1:
-        L = st.number_input("Kiriş Açıklığı (m):", value=6.0, step=1.0)
-        P_kg = st.number_input("Üstteki Tekil Yük (kg):", value=1000, step=100)
+        L = st.number_input("Kiriş Açıklığı (m):", value=6.0, step=0.5)
+        P_kg = st.number_input("Üstteki Tekil Yük (kg):", value=1000, step=50)
     with c2:
         tip = st.radio("Profil Serisi:", ["IPE", "HEA"])
         current_db = ipe_db if tip == "IPE" else hea_db
         secilen = st.selectbox("Manuel Profil Seç:", list(current_db.keys()))
     with c3:
-        limit_kat = st.selectbox("Sehim Limiti (L/X):", [200, 300, 500], index=1)
+        # GÜNCEL LİMİTLER BURADA
+        limit_kat = st.selectbox("Sehim Limiti (L/X):", [500, 900, 1000], index=0)
 
 # --- HESAPLAMA ---
-if st.button("ANALİZİ BAŞLAT"):
+if st.button("ANALİZİ BAŞLAT 🔍"):
     E = 210000
     L_mm = L * 1000
     I_mm4 = current_db[secilen][1] * 10000
@@ -61,12 +64,12 @@ if st.button("ANALİZİ BAŞLAT"):
     P_N = P_kg * 9.81
     limit_mm = L_mm / limit_kat
 
-    # Sehimler
+    # Sehim Hesapları
     f_zati = (5 * q_N_mm * (L_mm**4)) / (384 * E * I_mm4)
     f_yuk = (P_N * (L_mm**3)) / (48 * E * I_mm4)
     toplam_f = f_zati + f_yuk
 
-    # Sonuç Görselleştirme
+    # Sonuçlar
     st.divider()
     res_c1, res_c2, res_c3 = st.columns(3)
     
@@ -79,27 +82,26 @@ if st.button("ANALİZİ BAŞLAT"):
                   delta_color="normal" if status else "inverse")
 
     if status:
-        st.success(f"✅ Seçilen {secilen} bu yükler altında UYGUNDUR.")
+        st.success(f"✅ Seçilen {secilen} bu yükler ve L/{limit_kat} limiti altında UYGUNDUR.")
     else:
-        st.error(f"❌ Seçilen {secilen} YETERSİZDİR!")
+        st.error(f"❌ Seçilen {secilen} L/{limit_kat} limitini AŞIYOR!")
 
     # AKILLI ÖNERİ SİSTEMİ
-    st.subheader("💡 Akıllı Öneri Listesi")
+    st.subheader("💡 Akıllı Öneri")
     oneri_bulundu = False
     
-    # Tüm listeyi tara ve kurtaranları bul
     for ad, veri in current_db.items():
         temp_I = veri[1] * 10000
         temp_q = (veri[0] * 9.81) / 1000
         temp_f = ((5 * temp_q * (L_mm**4)) / (384 * E * temp_I)) + ((P_N * (L_mm**3)) / (48 * E * temp_I))
         
         if temp_f <= limit_mm:
-            st.write(f"👉 **{ad}** kullanılabilir. (Toplam Sehim: {temp_f:.2f} mm)")
+            st.info(f"👉 Bu şartları kurtaran en ekonomik kesit: **{ad}** (Toplam Sehim: {temp_f:.2f} mm)")
             oneri_bulundu = True
-            break # Sadece en ekonomik (ilk kurtaranı) gösterip durur
+            break
             
     if not oneri_bulundu:
-        st.warning("Bu açıklık ve yük için seçilen seride uygun profil bulunamadı!")
+        st.warning(f"Seçilen {tip} serisinde L/{limit_kat} limitini kurtaran bir profil bulunamadı!")
 
 if st.sidebar.button("Güvenli Çıkış"):
     st.session_state["authed"] = False
