@@ -1,8 +1,8 @@
 import streamlit as st
 
-st.set_page_config(page_title="Çelik Analiz Pro v6", page_icon="🏗️", layout="wide")
-st.title("🏗️ Çelik Kiriş Analiz Asistanı (Ultra Hassas)")
-st.caption("Analiz: Merkezi Yük + Zati Ağırlık + Gerilme + L/500-1000 Sehim Kontrolü")
+st.set_page_config(page_title="Çelik Analiz Pro v7", page_icon="🏗️", layout="wide")
+st.title("🏗️ Çelik Kiriş Analiz Asistanı (Endüstriyel Hassasiyet)")
+st.caption("Analiz: Merkezi Yük + Zati Ağırlık + Gerilme + Yüksek Hassasiyetli Sehim")
 
 # --- VERİTABANI (Wx: cm3, G: kg/m, Ix: cm4) ---
 hea_data = {
@@ -23,11 +23,11 @@ hea_data = {
 # --- YAN PANEL ---
 with st.sidebar:
     st.header("⚙️ Girdiler")
-    secilen = st.selectbox("Profil Seçin:", list(hea_data.keys()), index=10) # HEA 300 default
+    secilen = st.selectbox("Profil Seçin:", list(hea_data.keys()), index=10)
     L = st.number_input("Açıklık (Metre):", min_value=0.1, value=6.0, step=0.5)
     P_kg = st.number_input("Merkezi Yük (kg):", min_value=0, value=3000, step=100)
-    # Sadece L/500 ve L/1000
-    sehim_secimi = st.selectbox("Sehim Sınırı (Müsaade Edilen):", ["L/500", "L/1000"], index=0) 
+    # L/900 eklendi
+    sehim_secimi = st.selectbox("Sehim Sınırı:", ["L/500", "L/900", "L/1000"], index=0) 
     st.write("---")
     st.info("Çelik: S235 (St 37)\nE = 210.000 MPa")
 
@@ -42,12 +42,12 @@ def analiz(p_adi, L_m, p_kg):
     q_N_mm = (g_kg_m * 9.81) / 1000
     E = 210000
     
-    # Gerilme (Moment: P*L/4 + q*L^2/8)
+    # Gerilme
     M_t = (P_N * L_mm) / 4
     M_z = (q_N_mm * (L_mm**2)) / 8
     gerilme = (M_t + M_z) / wx_mm3
     
-    # Sehim (P*L^3/48EI + 5qL^4/384EI)
+    # Sehim
     s_p = (P_N * (L_mm**3)) / (48 * E * ix_mm4)
     s_g = (5 * q_N_mm * (L_mm**4)) / (384 * E * ix_mm4)
     total_s = s_p + s_g
@@ -58,36 +58,32 @@ g, s = analiz(secilen, L, P_kg)
 denomin = int(sehim_secimi.split("/")[1])
 limit_mm = (L * 1000) / denomin
 
-# --- GÖRSEL SONUÇLAR ---
-col1, col2 = st.columns(2)
+# --- SONUÇ PANELİ ---
+c1, c2 = st.columns(2)
 
-with col1:
-    st.metric("Gerilme (Sınır: 235)", f"{g:.2f} MPa")
+with c1:
+    st.metric("Gerilme Analizi", f"{g:.2f} MPa")
     if g < 235:
-        st.success("✅ Gerilme Uygun")
+        st.success("✅ Gerilme Uygun (<235)")
     else:
-        st.error("❌ Gerilme AŞILDI!")
+        st.error("❌ Akma Sınırı AŞILDI!")
 
-with col2:
-    st.metric(f"Sehim (Sınır: {sehim_secimi})", f"{s:.1f} mm")
+with c2:
+    st.metric(f"Sehim Analizi ({sehim_secimi})", f"{s:.1f} mm")
     if s < limit_mm:
         st.success(f"✅ Sehim Uygun (<{limit_mm:.1f} mm)")
     else:
-        st.error(f"❌ Sehim FAZLA! (>{limit_mm:.1f} mm)")
+        st.error(f"❌ Esneme Fazla! (>{limit_mm:.1f} mm)")
 
 # --- AKILLI ÖNERİ ---
 st.divider()
 if g >= 235 or s >= limit_mm:
-    st.warning(f"⚠️ **{secilen}** bu hassas sınırı kurtarmıyor. Uygun profil aranıyor...")
-    uygun_profil = None
+    st.warning(f"⚠️ **{secilen}** yetersiz. Kriterleri sağlayan ilk profil aranıyor...")
     for ad in hea_data.keys():
         g_k, s_k = analiz(ad, L, P_kg)
         if g_k < 235 and s_k < limit_mm:
-            st.info(f"💡 **ÇÖZÜM:** En az **{ad}** profilini kullanmalısınız.")
-            uygun_profil = ad
+            st.info(f"💡 **ÇÖZÜM:** Bu şartlar için minimum **{ad}** kullanmalısınız.")
             break
-    if not uygun_profil:
-        st.error("❗ HATA: Listemizdeki en büyük profil (HEA 1000) bile bu şartları sağlamıyor!")
 else:
     st.balloons()
-    st.success(f"Tebrikler! **{secilen}** hem taşıma hem de **{sehim_secimi}** sehim kriterini sağlıyor.")
+    st.success(f"Mükemmel! **{secilen}** hem taşıma kapasitesi hem de **{sehim_secimi}** sınırı için güvenli.")
