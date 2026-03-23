@@ -1,108 +1,120 @@
 import streamlit as st
+import pandas as pd
+from fpdf import FPDF
+import io
 
-# --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Korkmaz Mühendislik v13", layout="wide")
+# --- 1. PDF OLUŞTURMA FONKSİYONU (Türkçe Karakter Destekli) ---
+def create_pdf(data):
+    # Türkçe karakterleri standart PDF fontlarına (Arial/Helvetica) uygun hale getiren yardımcı
+    def tr_fix(text):
+        chars = {
+            "İ": "I", "ı": "i", "Ş": "S", "ş": "s", "Ğ": "G", "ğ": "g",
+            "Ü": "U", "ü": "u", "Ö": "O", "ö": "o", "Ç": "C", "ç": "c"
+        }
+        for tr, en in chars.items():
+            text = str(text).replace(tr, en)
+        return text
 
-# --- GÜVENLİK ---
-if "authed" not in st.session_state:
-    st.session_state["authed"] = False
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    
+    # Başlık
+    pdf.cell(200, 10, tr_fix("KORKMAZ MUHENDISLIK - ANALIZ RAPORU"), ln=True, align='C')
+    pdf.ln(10)
+    
+    # Verileri tablo gibi alt alta yazdır
+    pdf.set_font("Arial", size=12)
+    for key, value in data.items():
+        line = f"{key}: {value}"
+        pdf.cell(200, 10, tr_fix(line), ln=True)
+    
+    pdf.ln(20)
+    pdf.set_font("Arial", 'I', 10)
+    pdf.cell(200, 10, tr_fix("Bu rapor sistem tarafından otomatik oluşturulmuştur."), ln=True)
+    
+    # PDF'i hafızada (buffer) tut ve döndür
+    return pdf.output(dest='S').encode('latin-1')
 
-if not st.session_state["authed"]:
-    st.title("🔒 Güvenli Giriş")
-    sifre_input = st.text_input("Şifreyi Girin:", type="password")
+# --- 2. ŞİFRE KONTROLÜ ---
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    st.title("🔐 Korkmaz Mühendislik Portal")
+    password = st.text_input("Giriş Şifresi", type="password")
     if st.button("Giriş Yap"):
-        if sifre_input == "3685":
-            st.session_state["authed"] = True
+        if password == "3685":
+            st.session_state["authenticated"] = True
             st.rerun()
         else:
-            st.error("Şifre Hatalı!")
+            st.error("Hatalı Şifre!")
     st.stop()
 
-# --- VERİTABANI (Ağırlık kg/m, Ix cm4) ---
-# HEA Serisi (Hafif Geniş Başlıklı)
-hea_db = {
-    "HEA 100": [16.7, 349.2], "HEA 120": [19.9, 606.2], "HEA 140": [24.7, 1033.0],
-    "HEA 160": [30.4, 1673.0], "HEA 180": [35.5, 2510.0], "HEA 200": [42.3, 3692.0],
-    "HEA 220": [50.5, 5410.0], "HEA 240": [60.3, 7763.0], "HEA 260": [68.2, 10450.0],
-    "HEA 280": [76.4, 13670.0], "HEA 300": [88.3, 18260.0], "HEA 400": [125.0, 45070.0],
-    "HEA 500": [155.0, 86970.0], "HEA 600": [178.0, 141200.0]
+# --- 3. ANA UYGULAMA (HESAPLAMA MODÜLÜ) ---
+st.title("🏗️ Çelik Kiriş Sehim Analizi")
+st.write("Profil seçin ve yük değerlerini girerek kontrol sağlayın.")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    profil_tipi = st.selectbox("Profil Tipi", ["IPE", "HEA"])
+    span = st.number_input("Açıklık (L) - mm", value=5000)
+    load = st.number_input("Toplam Yük (q) - kg/m", value=500)
+
+with col2:
+    limit_secimi = st.selectbox("Sehim Limiti", ["L/500", "L/900", "L/1000"])
+    # Limit sayısal değeri
+    limit_val = int(limit_secimi.split("/")[1])
+
+# Örnek IPE/HEA Atalet Momentleri (Sadeleştirilmiş Veritabanı)
+atalet_data = {
+    "IPE 100": 171, "IPE 200": 1943, "IPE 300": 8356,
+    "HEA 100": 349, "HEA 200": 3692, "HEA 300": 18260
 }
 
-# IPE Serisi (Dar Başlıklı)
-ipe_db = {
-    "IPE 100": [8.1, 171.0], "IPE 120": [10.4, 317.8], "IPE 140": [12.9, 541.2],
-    "IPE 160": [15.8, 869.3], "IPE 180": [18.8, 1317.0], "IPE 200": [22.4, 1943.0],
-    "IPE 220": [26.2, 2772.0], "IPE 240": [30.7, 3892.0], "IPE 270": [36.1, 5790.0],
-    "IPE 300": [42.2, 8356.0], "IPE 330": [49.1, 11770.0], "IPE 360": [57.1, 16270.0],
-    "IPE 400": [66.3, 23130.0], "IPE 450": [77.6, 33740.0], "IPE 500": [90.7, 48200.0],
-    "IPE 600": [122.0, 92080.0]
-}
+secili_profil = st.selectbox("Profil Boyutu", list(atalet_data.keys()))
+I_degeri = atalet_data[secili_profil]
 
-st.title("🏗️ Korkmaz Akıllı Analiz Paneli")
-st.info("Limitler: 1/500, 1/900, 1/1000 olarak güncellendi. Zati ağırlık hesaba dahildir.")
-
-# --- GİRDİLER ---
-with st.container():
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        L = st.number_input("Kiriş Açıklığı (m):", value=6.0, step=0.5)
-        P_kg = st.number_input("Üstteki Tekil Yük (kg):", value=1000, step=50)
-    with c2:
-        tip = st.radio("Profil Serisi:", ["IPE", "HEA"])
-        current_db = ipe_db if tip == "IPE" else hea_db
-        secilen = st.selectbox("Manuel Profil Seç:", list(current_db.keys()))
-    with c3:
-        # GÜNCEL LİMİTLER BURADA
-        limit_kat = st.selectbox("Sehim Limiti (L/X):", [500, 900, 1000], index=0)
-
-# --- HESAPLAMA ---
-if st.button("ANALİZİ BAŞLAT 🔍"):
+if st.button("Hesapla"):
+    # Basit sehim formülü: (5 * q * L^4) / (384 * E * I)
+    # E = 210.000 N/mm2 (Çelik)
     E = 210000
-    L_mm = L * 1000
-    I_mm4 = current_db[secilen][1] * 10000
-    q_N_mm = (current_db[secilen][0] * 9.81) / 1000
-    P_N = P_kg * 9.81
-    limit_mm = L_mm / limit_kat
-
-    # Sehim Hesapları
-    f_zati = (5 * q_N_mm * (L_mm**4)) / (384 * E * I_mm4)
-    f_yuk = (P_N * (L_mm**3)) / (48 * E * I_mm4)
-    toplam_f = f_zati + f_yuk
-
-    # Sonuçlar
+    q_n_mm = (load * 9.81) / 1000 # kg/m -> N/mm
+    sehim = (5 * q_n_mm * (span**4)) / (384 * E * (I_degeri * 10000))
+    
+    izin_verilen = span / limit_val
+    
     st.divider()
-    res_c1, res_c2, res_c3 = st.columns(3)
+    st.subheader("📊 Analiz Sonucu")
     
-    res_c1.metric("Kendi Ağırlık Sehimi", f"{f_zati:.2f} mm")
-    res_c2.metric("Yük Sehimi", f"{f_yuk:.2f} mm")
-    
-    status = toplam_f <= limit_mm
-    res_c3.metric("TOPLAM SEHİM", f"{toplam_f:.2f} mm", 
-                  f"Limit: {limit_mm:.1f} mm", 
-                  delta_color="normal" if status else "inverse")
+    res_col1, res_col2 = st.columns(2)
+    res_col1.metric("Hesaplanan Sehim", f"{sehim:.2f} mm")
+    res_col2.metric("Limit Değer", f"{izin_verilen:.2f} mm")
 
-    if status:
-        st.success(f"✅ Seçilen {secilen} bu yükler ve L/{limit_kat} limiti altında UYGUNDUR.")
+    if sehim <= izin_verilen:
+        st.success("✅ KESİT UYGUN")
+        durum = "UYGUN"
     else:
-        st.error(f"❌ Seçilen {secilen} L/{limit_kat} limitini AŞIYOR!")
+        st.error("❌ KESİT YETERSİZ")
+        durum = "YETERSIZ"
 
-    # AKILLI ÖNERİ SİSTEMİ
-    st.subheader("💡 Akıllı Öneri")
-    oneri_bulundu = False
+    # PDF Raporu için veri hazırlığı
+    report_data = {
+        "Profil": secili_profil,
+        "Aciklik": f"{span} mm",
+        "Yuk": f"{load} kg/m",
+        "Secilen Limit": limit_secimi,
+        "Hesaplanan Sehim": f"{sehim:.2f} mm",
+        "Limit Deger": f"{izin_verilen:.2f} mm",
+        "Sonuc": durum
+    }
+
+    pdf_output = create_pdf(report_data)
     
-    for ad, veri in current_db.items():
-        temp_I = veri[1] * 10000
-        temp_q = (veri[0] * 9.81) / 1000
-        temp_f = ((5 * temp_q * (L_mm**4)) / (384 * E * temp_I)) + ((P_N * (L_mm**3)) / (48 * E * temp_I))
-        
-        if temp_f <= limit_mm:
-            st.info(f"👉 Bu şartları kurtaran en ekonomik kesit: **{ad}** (Toplam Sehim: {temp_f:.2f} mm)")
-            oneri_bulundu = True
-            break
-            
-    if not oneri_bulundu:
-        st.warning(f"Seçilen {tip} serisinde L/{limit_kat} limitini kurtaran bir profil bulunamadı!")
-
-if st.sidebar.button("Güvenli Çıkış"):
-    st.session_state["authed"] = False
-    st.rerun()
+    st.download_button(
+        label="📄 PDF Raporu İndir",
+        data=pdf_output,
+        file_name="analiz_raporu.pdf",
+        mime="application/pdf"
+    )
